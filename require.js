@@ -1,4 +1,4 @@
-var require = function (window) {
+(function (window) {
 
     var STATE = {
         NULL: 0,
@@ -13,7 +13,7 @@ var require = function (window) {
     var modules = {};
 
     var config = {
-        baseUrl: '/js',
+        baseUrl: '/',
     };
 
     _.isObject = function (o) {
@@ -47,7 +47,7 @@ var require = function (window) {
         if (this.isArray(arr) && this.isFunction(fn)) {
             var res = [];
             for (var key in arr) {
-                res.push(fn(arr[key], key, obj));
+                res.push(fn(arr[key], key, arr));
             }
             return res;
         }
@@ -87,15 +87,6 @@ var require = function (window) {
         }
     };
 
-    _.pathJoin = function (paths) {
-        _.forEach(paths, function (path) {
-            if (!_.isString(path)) {
-                throw Error('each single item of paths must be a string.')
-            }
-        })
-        return paths.join('/');
-    };
-
     _.genRandomID = function () {
         return Math.random().toString(32).slice(2);
     };
@@ -105,12 +96,8 @@ var require = function (window) {
     }
 
     function loadModule(moduleName) {
-        var url = _.pathJoin(config.baseUrl, moduleName, '.js');
-        loadJS(url, function () {
-            var mod = modules[moduleName];
-            mod.state = STATE.LOADED;
-            mod.notify();
-        });
+        var url = window.location.href + config.baseUrl + '/' + moduleName + '.js';
+        loadJS(url);
     };
 
     function loadJS(url, cb) {
@@ -130,61 +117,60 @@ var require = function (window) {
         head.appendChild(node);
     };
 
-    function Module(name = '', deps = [], state = STATE.NULL, context = null, content = null, depteds = []) {
+    function Module(name = '', deps = [], state = STATE.NULL, context = null, content = null, deptas = []) {
         this.name = name;
         this.deps = deps;
         this.state = state;
         this.context = context;
         this.content = content;
-        this.depteds = depteds;
+        this.deptas = deptas;
     };
 
-    Module.prototype.sub = function (name) {
-        modules[name].push(this.name);
+    Module.prototype.sub = function (deptaName) {
+        if(modules[deptaName].deptas.indexOf(this.name) === -1){
+            modules[deptaName].deptas.push(this.name);
+        }
     };
 
     Module.prototype.notify = function () {
-        if (this.checkDeps()) {
-            this.state = STATE.DONE;
-            _.forEach(this.depteds, function (name) {
-                modules[name].notify();
-            })
-        }
+        _.forEach(this.deptas, function (name) {
+            modules[name].require();
+        });
     };
 
     Module.prototype.checkDeps = function () {
-        return _.isEmptyArray(this.deps) ? true 
-        :  _.every(this.deps, function (depName) {
-            return depName in modules && modules[depName].state === STATE.DONE;
-        })
+        return _.isEmptyArray(this.deps) ?
+            true
+            :
+            _.every(this.deps, function (depName) {
+                return depName in modules && modules[depName].state === STATE.DONE;
+            });
     };
-    
-    Module.prototype.done = function(){
-        this.deps = deps;
-        this.state = STATE.DONE;
-        this.context = callback;
-        this.content = callback();
-    }
 
-    var require = function (selfName,deps, callback) {
-        var selfMod = modules[selfName];
-        if (self) {
-            callback();
+    Module.prototype.require = function () {
+        if (!this.content && this.checkDeps()) {
+            this.content = this.context.apply(this, _.map(this.deps, function (depName) {
+                return modules[depName].content;
+            }));
+            this.state = STATE.DONE;
+            this.notify();
         }
         else {
-            var task = modules[selfName]
-            _.forEach(deps, function (depName) {
+            var self = this;
+            _.forEach(this.deps, function (depName) {
                 let depModule = modules[depName];
                 if (depModule) {
                     switch (depModule.state) {
-                        case STATE.DONE:
-                            task.checkDeps() && callback();
                         case STATE.LOADING:
-                            task.sub(depName);
+                            self.sub(depName);
+                            break;
+                        case STATE.LOADED:
+                            self.sub(depName);
+                            depModule.require();
                             break;
                         case STATE.NULL:
                             depModule.state = LOADING;
-                            depModule.sub(depName);
+                            self.sub(depName);
                             loadModule(depName);
                             break;
                         default:
@@ -193,7 +179,7 @@ var require = function (window) {
                 }
                 else {
                     modules[depName] = new Module(depName, [], STATE.LOADING, null, null);
-                    task.sub(depName);
+                    self.sub(depName);
                     loadModule(depName);
                 }
             });
@@ -203,17 +189,16 @@ var require = function (window) {
     var define = function (moduleName, deps, callback) {
         var mod = modules[moduleName];
         if(mod){
-            if (_.isEmptyArray(deps)) {
-                mod.done();
-                mod.notify();
-            }
-            else {
-
-            }
+            mod.deps = deps;
+            mod.context = callback;
+            mod.require();
+        }
+        else{
+            modules[moduleName] = new Module(moduleName,deps,STATE.LOADED,callback,null);
         }
     };
 
-    require.config = function (o) {
+    Module.prototype.require.config = function (o) {
         if (_.isObject(o)) {
             if (o.baseUrl) {
                 config = o;
@@ -227,4 +212,10 @@ var require = function (window) {
         }
     }
 
-}(window || {})
+    window.require = function (deps, callback) {
+        var task = new Module(_.genRandomID(), deps, STATE.LOADED, callback, null);
+        modules[task.name] = task;
+        task.require();
+    }
+    window.define = define;
+}(window||{}))
