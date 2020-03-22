@@ -1,5 +1,12 @@
 (function (window) {
 
+    /**
+     * NULL:initialization
+     * LOADING: Script is downloading
+     * LOADED: Script has been loaded but not executed
+     * DONE: Script has been executed
+     * FAIL: Other cases
+     */
     var STATE = {
         NULL: 0,
         LOADING: 1,
@@ -7,11 +14,13 @@
         DONE: 4,
         FAIL: 5
     };
-
+    //util object
     var _ = {};
 
+    //storage of module informations
     var modules = {};
 
+    //config of requirejs
     var config = {
         baseUrl: '/',
     };
@@ -95,11 +104,22 @@
         return this.isArray(deps) && deps.length === 0
     }
 
+
+    /**
+     * load module via module name
+     * @param {String} moduleName 
+     */
     function loadModule(moduleName) {
         var url = window.location.href + config.baseUrl + '/' + moduleName + '.js';
         loadJS(url);
     };
 
+
+    /**
+     * loading script 
+     * @param {String} url 
+     * @param {Functino} cb 
+     */
     function loadJS(url, cb) {
         var node = document.createElement('script');
         node.async = true;
@@ -117,6 +137,15 @@
         head.appendChild(node);
     };
 
+    /**
+     * Module Constructor
+     * @param {String} name module name
+     * @param {Array} deps module deps
+     * @param {Enum} state module loading state
+     * @param {*} context module code
+     * @param {*} content module context after code execuation
+     * @param {*} deptas the modules rely on this module
+     */
     function Module(name = '', deps = [], state = STATE.NULL, context = null, content = null, deptas = []) {
         this.name = name;
         this.deps = deps;
@@ -126,18 +155,30 @@
         this.deptas = deptas;
     };
 
+    /**
+     * subscribe modules as to get notifications when it is done
+     * @param {String} depName the modules need to subscribe
+     */
     Module.prototype.sub = function (deptaName) {
         if(modules[deptaName].deptas.indexOf(this.name) === -1){
             modules[deptaName].deptas.push(this.name);
         }
     };
 
+    /**
+     * propogate the news of this moudle has been ready to the deptas
+     */
     Module.prototype.notify = function () {
         _.forEach(this.deptas, function (name) {
-            modules[name].require();
+            if(modules[name].isReady()){
+                modules[name].complete();
+            }
         });
     };
 
+    /**
+     * check if deps are all ready
+     */
     Module.prototype.checkDeps = function () {
         return _.isEmptyArray(this.deps) ?
             true
@@ -147,13 +188,31 @@
             });
     };
 
-    Module.prototype.require = function () {
-        if (!this.content && this.checkDeps()) {
+    /**
+     * executed the code & propogate the news to deptas 
+     */
+    Module.prototype.complete = function(){
+            this.state = STATE.DONE;
             this.content = this.context.apply(this, _.map(this.deps, function (depName) {
                 return modules[depName].content;
             }));
-            this.state = STATE.DONE;
             this.notify();
+    }
+
+    /**
+     * check if the deps are ready & this module hasnt been executed
+     */
+    Module.prototype.isReady = function(){
+        return !this.content && this.checkDeps();
+    }
+
+    /**
+     * require deps, start loading deps
+     */
+    Module.prototype.require = function () {
+        // just run if ready
+        if(this.isReady()){
+            this.complete();
         }
         else {
             var self = this;
@@ -161,13 +220,16 @@
                 let depModule = modules[depName];
                 if (depModule) {
                     switch (depModule.state) {
+                        // subscribe if loading
                         case STATE.LOADING:
                             self.sub(depName);
                             break;
+                        // the module context has been loaded but its deps might not, sub & require 
                         case STATE.LOADED:
                             self.sub(depName);
                             depModule.require();
                             break;
+                        // the module context remains unknow, sub & start loading the script
                         case STATE.NULL:
                             depModule.state = LOADING;
                             self.sub(depName);
@@ -178,6 +240,7 @@
                     }
                 }
                 else {
+                    // the module has not been initialized yet
                     modules[depName] = new Module(depName, [], STATE.LOADING, null, null);
                     self.sub(depName);
                     loadModule(depName);
@@ -186,18 +249,30 @@
         }
     };
 
+    /**
+     * definiation a module
+     * @param {String} moduleName 
+     * @param {Arary} deps 
+     * @param {Function} callback context of the module
+     */
     var define = function (moduleName, deps, callback) {
         var mod = modules[moduleName];
         if(mod){
+            // some tasks have asked for this module, but until now the deps are known, start loading scripts of the deps
             mod.deps = deps;
             mod.context = callback;
             mod.require();
         }
         else{
+            // lazy loading since no tasks have asked for this module yet, no need to load it.
             modules[moduleName] = new Module(moduleName,deps,STATE.LOADED,callback,null);
         }
     };
 
+    /**
+     * custom configuration
+     * @param {Object} o configuration of  the lib
+     */
     Module.prototype.require.config = function (o) {
         if (_.isObject(o)) {
             if (o.baseUrl) {
@@ -212,7 +287,11 @@
         }
     }
 
+
+
     window.require = function (deps, callback) {
+        // the task could be regarded as a special module
+        // use a random string as module name
         var task = new Module(_.genRandomID(), deps, STATE.LOADED, callback, null);
         modules[task.name] = task;
         task.require();

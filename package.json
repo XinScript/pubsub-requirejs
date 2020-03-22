@@ -1,0 +1,25 @@
+{
+  "name": "requirejs",
+  "version": "1.0.0",
+  "description": "a requirejs-like module loader based on subscribe/publish",
+  "main": "require.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/XinScript/pubsub-requirejs.git"
+  },
+  "keywords": [
+    "requrejs",
+    "moudle",
+    "loader",
+    "wheels"
+  ],
+  "author": "xinscript",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/XinScript/pubsub-requirejs/issues"
+  },
+  "homepage": "https://github.com/XinScript/pubsub-requirejs#readme"
+}
